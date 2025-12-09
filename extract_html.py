@@ -64,7 +64,7 @@ def read_html_file(file_path: str) -> Optional[str]:
             try:
                 with open(file_path, 'r', encoding=enc, errors='ignore') as f:
                     content = f.read()
-                    # 检查是否包含关键中文内容
+                    # 检查是否包含关键中文内容，如果找到就使用这个编码
                     if '主料' in content or '辅料' in content or '做法步骤' in content or 'recipe_De_title' in content:
                         return content
             except (UnicodeDecodeError, LookupError):
@@ -306,6 +306,36 @@ def extract_steps_from_html(html_content: str) -> List[Dict]:
     return steps
 
 
+def extract_main_image(html_content: str) -> str:
+    """提取菜谱首图"""
+    if not html_content:
+        return ''
+    
+    # 方法1: 从 recipe_De_imgBox 提取
+    img_box_match = re.search(r'<div[^>]*class="recipe_De_imgBox"[^>]*>[\s\S]*?<img[^>]*(?:data-src|src)="([^"]+)"', html_content)
+    if img_box_match:
+        return img_box_match.group(1)
+    
+    # 方法2: 查找第一个较大的图片（通常在文章开头）
+    img_matches = list(re.finditer(r'<img[^>]*(?:data-src|src)="([^"]+)"', html_content))
+    for img_match in img_matches:
+        img_url = img_match.group(1)
+        # 跳过小图标和logo
+        if 'logo' not in img_url.lower() and 'icon' not in img_url.lower():
+            # 优先选择包含 recipe 或 food 的图片
+            if 'recipe' in img_url.lower() or 'food' in img_url.lower() or 'dish' in img_url.lower():
+                return img_url
+            # 或者选择第一个较大的图片URL（通常包含尺寸信息）
+            if any(size in img_url for size in ['300', '400', '500', '600', '800']):
+                return img_url
+    
+    # 如果都没找到，返回第一个非logo/icon的图片
+    if img_matches:
+        return img_matches[0].group(1)
+    
+    return ''
+
+
 def extract_recipe_metadata(html_content: str) -> Dict[str, Any]:
     """从HTML中提取口味、工艺、耗时、难度等信息"""
     metadata = {
@@ -342,12 +372,14 @@ def extract_recipe_metadata(html_content: str) -> Dict[str, Any]:
     return metadata
 
 
-def format_recipe_output(recipe_name: str, ingredients_detail: Dict, metadata: Dict, steps: List[Dict]) -> str:
+def format_recipe_output(recipe_name: str, ingredients_detail: Dict, metadata: Dict, steps: List[Dict], main_image: str = '') -> str:
     """格式化单个菜谱的输出"""
     output_lines = []
     
     # 菜名
     output_lines.append(f"【菜名】{recipe_name}")
+    if main_image:
+        output_lines.append(f"【首图】{main_image}")
     output_lines.append("")
     
     # 食材明细
@@ -417,6 +449,9 @@ def parse_html_file(html_file: Path) -> Optional[Dict]:
     # 提取菜名
     recipe_name = extract_recipe_name(html_content)
     
+    # 提取首图
+    main_image = extract_main_image(html_content)
+    
     # 提取食材
     ingredients_detail = extract_ingredients_from_html(html_content)
     
@@ -428,6 +463,7 @@ def parse_html_file(html_file: Path) -> Optional[Dict]:
     
     return {
         'name': recipe_name,
+        'main_image': main_image,
         'ingredients': ingredients_detail,
         'steps': steps,
         'metadata': metadata,
@@ -474,7 +510,8 @@ def main():
                     recipe_data['name'],
                     recipe_data['ingredients'],
                     recipe_data['metadata'],
-                    recipe_data['steps']
+                    recipe_data['steps'],
+                    recipe_data.get('main_image', '')
                 )
                 output_lines.append(formatted)
                 processed += 1
@@ -487,12 +524,14 @@ def main():
         if (processed + failed) % 100 == 0:
             print(f"  已处理 {processed + failed}/{len(html_files)} 个文件... (成功: {processed}, 失败: {failed})")
     
-    # 保存到文件
+    # 保存到文件（确保使用UTF-8编码，并添加BOM以兼容某些系统）
     print(f"💾 保存结果到: {output_file}")
     try:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("\n".join(output_lines))
-        print(f"✅ 成功保存 {processed} 个菜谱到 {output_file}")
+        # 使用UTF-8编码保存，不添加BOM（BOM可能导致某些解析器问题）
+        output_text = "\n".join(output_lines)
+        with open(output_file, 'w', encoding='utf-8', errors='replace') as f:
+            f.write(output_text)
+        print(f"✅ 成功保存 {processed} 个菜谱到 {output_file} (UTF-8编码)")
         if failed > 0:
             print(f"⚠ 失败 {failed} 个文件")
     except Exception as e:

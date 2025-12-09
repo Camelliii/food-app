@@ -49,6 +49,7 @@ function parseRecipe(section) {
     craft: '',
     time: '',
     difficulty: '',
+    image: '', // 首图
   };
   
   let currentSection = '';
@@ -63,6 +64,10 @@ function parseRecipe(section) {
     if (line.startsWith('【菜名】')) {
       recipe.name = line.replace('【菜名】', '').trim();
       currentSection = 'name';
+    }
+    // 首图
+    else if (line.startsWith('【首图】')) {
+      recipe.image = line.replace('【首图】', '').trim();
     }
     // 食材明细
     else if (line.startsWith('【食材明细】')) {

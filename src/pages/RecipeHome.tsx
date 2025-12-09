@@ -193,16 +193,20 @@ export default function RecipeHome() {
                   <div style={{ 
                     width: '100%', 
                     height: '180px', 
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    background: recipe.image 
+                      ? `url(${recipe.image}) center/cover no-repeat`
+                      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
                     borderRadius: '8px',
                     marginBottom: '1rem',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    color: 'white',
-                    fontSize: '2rem'
+                    color: recipe.image ? 'transparent' : 'white',
+                    fontSize: recipe.image ? '0' : '2rem',
+                    position: 'relative',
+                    overflow: 'hidden'
                   }}>
-                    {recipe.name.charAt(0)}
+                    {!recipe.image && recipe.name.charAt(0)}
                   </div>
                   
                   <h3 style={{ marginBottom: '0.5rem', fontSize: '1.25rem' }}>
