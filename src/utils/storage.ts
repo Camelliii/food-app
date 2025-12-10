@@ -1,5 +1,6 @@
 import { Recipe, Ingredient, TodayMenuItem, ShoppingItem } from '../types';
 import { indexedDBStorage } from './indexedDBStorage';
+import { getIngredientCategory } from './ingredientCategory';
 
 // 检查是否应该使用 IndexedDB（如果 LocalStorage 已满或数据量大）
 const USE_INDEXED_DB = true; // 默认使用 IndexedDB 以支持大量数据
@@ -72,12 +73,29 @@ const initialRecipes: Recipe[] = [
 ];
 
 const initialIngredients: Ingredient[] = [
-  { id: 'lettuce', name: '生菜', category: '蔬果', quantity: 2, unit: '把' },
-  { id: 'mushroom', name: '口菇', category: '蔬果', quantity: 5, unit: '个' },
-  { id: 'egg', name: '鸡蛋', category: '肉禽蛋', quantity: 0, unit: '个', needRestock: true },
-  { id: 'rice', name: '米饭', category: '其他', quantity: 999, unit: '碗', isStaple: true },
-  { id: 'oil', name: '蚝油', category: '调料', quantity: 999, unit: '瓶', isStaple: true },
-  { id: 'sausage', name: '香肠', category: '熟食', quantity: 0.5, unit: '根' },
+  // 常备调料和食材
+  { id: 'salt', name: '食盐', category: getIngredientCategory('食盐'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'light_soy', name: '生抽', category: getIngredientCategory('生抽'), quantity: 999, unit: '瓶', isStaple: true },
+  { id: 'dark_soy', name: '老抽', category: getIngredientCategory('老抽'), quantity: 999, unit: '瓶', isStaple: true },
+  { id: 'vinegar', name: '醋', category: getIngredientCategory('醋'), quantity: 999, unit: '瓶', isStaple: true },
+  { id: 'cooking_wine', name: '料酒', category: getIngredientCategory('料酒'), quantity: 999, unit: '瓶', isStaple: true },
+  { id: 'rice', name: '米饭', category: getIngredientCategory('米饭'), quantity: 999, unit: '碗', isStaple: true },
+  { id: 'flour', name: '面粉', category: getIngredientCategory('面粉'), quantity: 999, unit: '袋', isStaple: true },
+  { id: 'sugar', name: '白糖', category: getIngredientCategory('白糖'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'rock_sugar', name: '冰糖', category: getIngredientCategory('冰糖'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'pepper', name: '花椒', category: getIngredientCategory('花椒'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'star_anise', name: '八角', category: getIngredientCategory('八角'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'bay_leaf', name: '香叶', category: getIngredientCategory('香叶'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'cinnamon', name: '桂皮', category: getIngredientCategory('桂皮'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'msg', name: '味精', category: getIngredientCategory('味精'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'chicken_powder', name: '鸡精', category: getIngredientCategory('鸡精'), quantity: 999, unit: '包', isStaple: true },
+  { id: 'oyster_sauce', name: '蚝油', category: getIngredientCategory('蚝油'), quantity: 999, unit: '瓶', isStaple: true },
+  
+  // 原有示例数据（可选保留）
+  { id: 'lettuce', name: '生菜', category: getIngredientCategory('生菜'), quantity: 2, unit: '把' },
+  { id: 'mushroom', name: '口菇', category: getIngredientCategory('口菇'), quantity: 5, unit: '个' },
+  { id: 'egg', name: '鸡蛋', category: getIngredientCategory('鸡蛋'), quantity: 0, unit: '个', needRestock: true },
+  { id: 'sausage', name: '香肠', category: getIngredientCategory('香肠'), quantity: 0.5, unit: '根' },
 ];
 
 export const storage = {

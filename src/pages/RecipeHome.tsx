@@ -1,10 +1,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Lightbulb, Trash2 } from 'lucide-react';
+import { Search, Lightbulb } from 'lucide-react';
 import { storage } from '../utils/storage';
 import { checkRecipeAvailability } from '../utils/helpers';
-import { getRecommendedRecipes } from '../utils/searchHelpers';
+import { getRecommendedRecipes, sortRecipesByAvailability } from '../utils/searchHelpers';
 import { RecipeCategory, Recipe, Ingredient, TodayMenuItem } from '../types';
+import { loadRecipesFromJSON } from '../utils/recipeDataLoader';
+import RecipeImage from '../components/RecipeImage';
 
 export default function RecipeHome() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -16,7 +18,7 @@ export default function RecipeHome() {
   const [selectedCategory, setSelectedCategory] = useState<RecipeCategory>('全部');
   const [showAllRecipes, setShowAllRecipes] = useState(false); // 是否显示所有菜谱
 
-  const categories: RecipeCategory[] = ['全部', '热菜', '养生', '烘焙', '小吃', '饮品', '其他'];
+  const categories: RecipeCategory[] = ['全部', '热菜', '凉菜', '汤羹', '主食', '小吃', '西餐', '烘焙', '饮品', '泡酱腌菜', '其它'];
 
   // 当搜索词或分类改变时，重置"查看更多"状态
   useEffect(() => {
@@ -27,18 +29,18 @@ export default function RecipeHome() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [recipesData, ingredientsData, menuData] = await Promise.all([
-          storage.getRecipes(),
-          Promise.resolve(storage.getIngredients()), // 保持同步以兼容
-          Promise.resolve(storage.getTodayMenu()), // 保持同步以兼容
+        // 从 JSON 文件加载菜谱数据
+        const recipesData = loadRecipesFromJSON();
+        const [ingredientsData, menuData] = await Promise.all([
+          Promise.resolve(storage.getIngredients()),
+          Promise.resolve(storage.getTodayMenu()),
         ]);
         setRecipes(recipesData);
         setIngredients(ingredientsData);
         setTodayMenu(menuData);
       } catch (error) {
         console.error('加载数据失败:', error);
-        // 降级到同步方法
-        setRecipes(storage.getRecipesSync());
+        setRecipes([]);
         setIngredients(storage.getIngredients());
         setTodayMenu(storage.getTodayMenu());
       } finally {
@@ -48,15 +50,13 @@ export default function RecipeHome() {
 
     loadData();
 
-    // 监听storage事件，当数据更新时重新加载
+    // 监听storage事件，当数据更新时重新加载（仅更新菜单和食材）
     const handleStorageUpdate = async () => {
       try {
-        const [recipesData, ingredientsData, menuData] = await Promise.all([
-          storage.getRecipes(),
+        const [ingredientsData, menuData] = await Promise.all([
           Promise.resolve(storage.getIngredients()),
           Promise.resolve(storage.getTodayMenu()),
         ]);
-        setRecipes(recipesData);
         setIngredients(ingredientsData);
         setTodayMenu(menuData);
       } catch (error) {
@@ -73,8 +73,28 @@ export default function RecipeHome() {
   }, []);
 
   const searchResults = useMemo(() => {
-    // 使用智能搜索和推荐
-    return getRecommendedRecipes(recipes, searchQuery, selectedCategory, ingredients, showAllRecipes);
+    // 先按分类过滤
+    let filteredRecipes = recipes;
+    if (selectedCategory !== '全部') {
+      filteredRecipes = recipes.filter(recipe => 
+        recipe.category.includes(selectedCategory)
+      );
+    }
+    
+    // 如果有搜索词，使用智能搜索
+    if (searchQuery.trim()) {
+      return getRecommendedRecipes(filteredRecipes, searchQuery, '全部', ingredients, showAllRecipes);
+    }
+    
+    // 没有搜索词时，按缺少食材种类排序（首页推荐逻辑）
+    const sortedResult = sortRecipesByAvailability(filteredRecipes, ingredients, showAllRecipes);
+    
+    return {
+      hasExactMatch: true,
+      exactMatches: sortedResult.displayed,
+      recommendations: [],
+      hasMore: sortedResult.hasMore,
+    };
   }, [recipes, selectedCategory, searchQuery, ingredients, showAllRecipes]);
 
   // 决定显示哪些菜谱
@@ -101,16 +121,16 @@ export default function RecipeHome() {
               left: '1rem', 
               top: '50%', 
               transform: 'translateY(-50%)',
-              color: '#999'
+              color: 'var(--text-tertiary)'
             }} 
           />
           <input
             type="text"
             className="search-bar"
-            placeholder="搜索菜谱名称或食材（如：宫保鸡丁、鸡蛋、鸡肉）..."
+            placeholder="搜索菜谱名称、分类或食材（如：宫保鸡丁、热菜、鸡蛋）..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{ paddingLeft: '3rem' }}
+            style={{ paddingLeft: '3rem', marginBottom: 0 }}
           />
         </div>
       </div>
@@ -127,19 +147,41 @@ export default function RecipeHome() {
         ))}
       </div>
 
-      {/* 显示"未找到菜谱"提示（仅当是食材搜索且没有完全匹配时） */}
-      {!searchResults.hasExactMatch && searchQuery.trim() !== '' && (
+      {/* 显示搜索类型提示 */}
+      {searchQuery.trim() !== '' && searchResults.searchType && searchResults.searchType !== 'none' && (
+        <div style={{ marginBottom: '1rem' }}>
+          <span className="badge badge-info" style={{ 
+            borderRadius: 'var(--radius-full)', 
+            padding: '0.5rem 1rem', 
+            fontSize: '0.875rem',
+            backgroundColor: '#f5f2eb',
+            color: 'var(--text-secondary)',
+            border: '1px solid rgba(0, 0, 0, 0.08)'
+          }}>
+            {searchResults.searchType === 'name' && '按菜名搜索'}
+            {searchResults.searchType === 'category' && '按分类搜索'}
+            {searchResults.searchType === 'ingredient' && '按食材搜索'}
+          </span>
+        </div>
+      )}
+
+      {/* 显示"未找到完全匹配"提示（有近似结果时） */}
+      {!searchResults.hasExactMatch && searchResults.recommendations.length > 0 && searchQuery.trim() !== '' && (
         <div className="card" style={{ 
           marginBottom: '2rem', 
-          backgroundColor: '#fff3cd',
-          border: '1px solid #ffd43b'
+          backgroundColor: '#f5f2eb',
+          border: '1px solid rgba(0, 0, 0, 0.08)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-            <Search size={20} color="#b8860b" />
-            <h3 style={{ margin: 0, color: '#b8860b' }}>未找到完全匹配的菜谱</h3>
+            <Search size={20} color="var(--warning-color)" />
+            <h3 style={{ margin: 0, color: '#d48806' }}>
+              {searchResults.searchType === 'ingredient' ? '未找到包含所有食材的菜谱' : '未找到完全匹配的菜谱'}
+            </h3>
           </div>
           <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
-            没有找到同时包含所有搜索食材的菜谱
+            {searchResults.searchType === 'ingredient' 
+              ? '没有找到同时包含所有搜索食材的菜谱，为您推荐相关菜谱' 
+              : '为您推荐相似的菜谱'}
           </p>
         </div>
       )}
@@ -156,57 +198,33 @@ export default function RecipeHome() {
         {displayRecipes.map(recipe => {
           const availability = checkRecipeAvailability(recipe, ingredients);
           
-          const handleDelete = async (e: React.MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            
-            const confirmed = window.confirm(`确定要删除菜谱"${recipe.name}"吗？此操作不可撤销。`);
-            if (!confirmed) return;
-            
-            try {
-              // 获取所有菜谱
-              const allRecipes = await storage.getRecipes();
-              // 过滤掉要删除的菜谱
-              const updatedRecipes = allRecipes.filter(r => r.id !== recipe.id);
-              // 保存更新后的菜谱列表
-              await storage.saveRecipes(updatedRecipes);
-              
-              // 如果该菜谱在今日菜单中，也要移除
-              const updatedMenu = todayMenu.filter(item => item.recipeId !== recipe.id);
-              storage.saveTodayMenu(updatedMenu);
-              
-              // 触发更新事件
-              window.dispatchEvent(new Event('storage-update'));
-            } catch (error) {
-              console.error('删除菜谱失败:', error);
-              alert('删除失败，请重试');
-            }
-          };
-          
           return (
             <div key={recipe.id} style={{ position: 'relative' }}>
               <Link
                 to={`/recipes/${recipe.id}`}
                 style={{ textDecoration: 'none', color: 'inherit' }}
               >
-                <div className="card" style={{ cursor: 'pointer', transition: 'transform 0.2s' }}>
+                <div className="card recipe-card" style={{ 
+                  cursor: 'pointer', 
+                  transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                  border: 'none',
+                  overflow: 'hidden'
+                }}>
                   <div style={{ 
-                    width: '100%', 
-                    height: '180px', 
-                    background: recipe.image 
-                      ? `url(${recipe.image}) center/cover no-repeat`
-                      : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    borderRadius: '8px',
-                    marginBottom: '1rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: recipe.image ? 'transparent' : 'white',
-                    fontSize: recipe.image ? '0' : '2rem',
+                    width: 'calc(100% + 3rem)', 
+                    margin: '-1.5rem -1.5rem 1rem -1.5rem',
+                    height: '200px', 
                     position: 'relative',
-                    overflow: 'hidden'
+                    overflow: 'hidden',
+                    backgroundColor: '#f5f2eb',
                   }}>
-                    {!recipe.image && recipe.name.charAt(0)}
+                    <RecipeImage
+                      recipe={recipe}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                      }}
+                    />
                   </div>
                   
                   <h3 style={{ marginBottom: '0.5rem', fontSize: '1.25rem' }}>
@@ -221,9 +239,11 @@ export default function RecipeHome() {
                         ① 缺{availability.missingCount}样
                       </span>
                     )}
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-                      {recipe.cookTime}分
-                    </span>
+                    {recipe.cookTime > 0 && (
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                        {recipe.cookTime}分
+                      </span>
+                    )}
                   </div>
                   
                   {recipe.tags && recipe.tags.length > 0 && (
@@ -233,37 +253,6 @@ export default function RecipeHome() {
                   )}
                 </div>
               </Link>
-              <button
-                onClick={handleDelete}
-                style={{
-                  position: 'absolute',
-                  top: '0.5rem',
-                  right: '0.5rem',
-                  backgroundColor: 'rgba(255, 82, 82, 0.9)',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#d32f2f';
-                  e.currentTarget.style.transform = 'scale(1.1)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'rgba(255, 82, 82, 0.9)';
-                  e.currentTarget.style.transform = 'scale(1)';
-                }}
-                title="删除菜谱"
-              >
-                <Trash2 size={16} />
-              </button>
             </div>
           );
         })}
@@ -283,25 +272,11 @@ export default function RecipeHome() {
 
       {/* 显示"查看更多"按钮（仅在没有搜索词且有更多菜谱时） */}
       {searchQuery.trim() === '' && searchResults.hasMore && !showAllRecipes && (
-        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+        <div style={{ textAlign: 'center', marginTop: '2rem', paddingBottom: '2rem' }}>
           <button
             onClick={() => setShowAllRecipes(true)}
-            style={{
-              padding: '0.75rem 2rem',
-              fontSize: '1rem',
-              backgroundColor: 'var(--primary-color)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              transition: 'background-color 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#d32f2f';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--primary-color)';
-            }}
+            className="btn btn-primary"
+            style={{ padding: '0.75rem 2.5rem' }}
           >
             查看更多（缺3样及以上）
           </button>
@@ -310,25 +285,11 @@ export default function RecipeHome() {
 
       {/* 显示"收起"按钮（当显示所有菜谱时） */}
       {searchQuery.trim() === '' && showAllRecipes && (
-        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
+        <div style={{ textAlign: 'center', marginTop: '2rem', paddingBottom: '2rem' }}>
           <button
             onClick={() => setShowAllRecipes(false)}
-            style={{
-              padding: '0.75rem 2rem',
-              fontSize: '1rem',
-              backgroundColor: 'var(--text-secondary)',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              transition: 'background-color 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#666';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--text-secondary)';
-            }}
+            className="btn btn-outline"
+            style={{ padding: '0.75rem 2.5rem' }}
           >
             收起
           </button>

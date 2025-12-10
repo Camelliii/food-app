@@ -27,7 +27,7 @@ export function checkRecipeAvailability(recipe: Recipe, ingredients: Ingredient[
   };
 }
 
-// 根据今日菜单生成采购清单
+// 根据今日菜单生成采购清单（使用名称匹配）
 export function generateShoppingList(
   menu: TodayMenuItem[],
   ingredients: Ingredient[]
@@ -36,21 +36,27 @@ export function generateShoppingList(
   
   menu.forEach(item => {
     item.recipe.ingredients.forEach(recipeIngredient => {
+      // 使用名称匹配，因为ID可能不一致
+      const stock = ingredients.find(ing => ing.name === recipeIngredient.ingredientName);
+      
       // 常备物品不加入采购清单
-      const stock = ingredients.find(ing => ing.id === recipeIngredient.ingredientId);
       if (stock?.isStaple) return;
       
       // 检查是否需要购买
-      if (!stock || stock.quantity < recipeIngredient.quantity) {
+      const requiredQuantity = recipeIngredient.quantity || 0;
+      if (!stock || stock.quantity < requiredQuantity) {
         const existing = shoppingMap.get(recipeIngredient.ingredientName);
         if (existing) {
-          existing.quantity = Math.max(existing.quantity, recipeIngredient.quantity);
-          existing.recipeNames?.push(item.recipe.name);
+          // 如果已存在，取所需数量的最大值
+          existing.quantity = Math.max(existing.quantity, requiredQuantity);
+          if (existing.recipeNames && !existing.recipeNames.includes(item.recipe.name)) {
+            existing.recipeNames.push(item.recipe.name);
+          }
         } else {
           shoppingMap.set(recipeIngredient.ingredientName, {
             id: `shop_${Date.now()}_${Math.random()}`,
             name: recipeIngredient.ingredientName,
-            quantity: recipeIngredient.quantity,
+            quantity: requiredQuantity,
             unit: recipeIngredient.unit,
             fromRecipe: true,
             recipeNames: [item.recipe.name],
@@ -64,26 +70,31 @@ export function generateShoppingList(
   return Array.from(shoppingMap.values());
 }
 
-// 生成库存消耗清单
+/**
+ * 生成库存消耗清单（使用名称匹配）
+ * 注意：常备食材（isStaple === true）的 afterConsumption 等于 currentStock，表示不扣减
+ */
 export function generateConsumptionList(
   recipe: Recipe,
   ingredients: Ingredient[]
 ): ConsumptionItem[] {
   return recipe.ingredients.map(recipeIngredient => {
-    const stock = ingredients.find(ing => ing.id === recipeIngredient.ingredientId);
+    // 使用名称匹配，因为ID可能不一致
+    const stock = ingredients.find(ing => ing.name === recipeIngredient.ingredientName);
     const currentStock = stock?.quantity || 0;
     const currentUnit = stock?.unit || recipeIngredient.unit;
     const isStaple = stock?.isStaple || false;
     
-    // 常备物品不扣减库存
-    const afterConsumption = isStaple ? currentStock : Math.max(0, currentStock - recipeIngredient.quantity);
+    // 常备物品不扣减库存，消耗后数量等于当前库存
+    const requiredQuantity = recipeIngredient.quantity || 0;
+    const afterConsumption = isStaple ? currentStock : Math.max(0, currentStock - requiredQuantity);
     
     return {
       ingredientId: recipeIngredient.ingredientId,
       ingredientName: recipeIngredient.ingredientName,
       currentStock,
       currentUnit,
-      requiredQuantity: recipeIngredient.quantity,
+      requiredQuantity,
       requiredUnit: recipeIngredient.unit,
       afterConsumption,
       isStaple,
@@ -91,22 +102,52 @@ export function generateConsumptionList(
   });
 }
 
-// 消耗库存
+/**
+ * 消耗库存（使用名称匹配）
+ * 注意：
+ * 1. 常备食材（isStaple === true）不参与库存扣减，数量保持不变
+ * 2. 非常备食材数量归0时，会自动从库存中删除
+ */
 export function consumeIngredients(
   recipe: Recipe,
   ingredients: Ingredient[]
 ): Ingredient[] {
-  return ingredients.map(ing => {
-    const recipeIngredient = recipe.ingredients.find(ri => ri.ingredientId === ing.id);
-    if (!recipeIngredient) return ing;
+  const result = ingredients.map(ing => {
+    // 使用名称匹配，因为ID可能不一致
+    const recipeIngredient = recipe.ingredients.find(ri => ri.ingredientName === ing.name);
+    if (!recipeIngredient) {
+      return ing; // 菜谱不需要此食材，保持不变
+    }
     
-    // 常备物品不扣减
-    if (ing.isStaple) return ing;
+    // 常备物品不扣减库存，直接返回原对象
+    if (ing.isStaple) {
+      return ing;
+    }
     
+    // 扣减数量（仅对非常备物品）
+    const requiredQuantity = recipeIngredient.quantity || 0;
     return {
       ...ing,
-      quantity: Math.max(0, ing.quantity - recipeIngredient.quantity),
+      quantity: Math.max(0, ing.quantity - requiredQuantity),
     };
+  });
+  
+  // 删除数量为0的非常备食材
+  return removeZeroQuantityIngredients(result);
+}
+
+/**
+ * 清理数量为0的非常备食材
+ * 如果食材不是常备食材且数量为0，则从列表中删除
+ */
+export function removeZeroQuantityIngredients(ingredients: Ingredient[]): Ingredient[] {
+  return ingredients.filter(ing => {
+    // 常备食材保留，即使数量为0
+    if (ing.isStaple) {
+      return true;
+    }
+    // 非常备食材：数量为0时删除
+    return ing.quantity > 0;
   });
 }
 

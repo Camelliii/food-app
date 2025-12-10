@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { storage } from '../utils/storage';
 import { checkRecipeAvailability } from '../utils/helpers';
 import { Recipe, Ingredient, TodayMenuItem } from '../types';
+import { loadRecipesFromJSON } from '../utils/recipeDataLoader';
+import RecipeImage from '../components/RecipeImage';
 
 export default function RecipeDetail() {
   const { id } = useParams<{ id: string }>();
@@ -15,10 +17,11 @@ export default function RecipeDetail() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [recipesData, ingredientsData, menuData] = await Promise.all([
-          storage.getRecipes(),
-          Promise.resolve(storage.getIngredients()), // 保持同步以兼容
-          Promise.resolve(storage.getTodayMenu()), // 保持同步以兼容
+        // 从 JSON 文件加载菜谱数据
+        const recipesData = loadRecipesFromJSON();
+        const [ingredientsData, menuData] = await Promise.all([
+          Promise.resolve(storage.getIngredients()),
+          Promise.resolve(storage.getTodayMenu()),
         ]);
         
         const foundRecipe = recipesData.find(r => r.id === id);
@@ -27,10 +30,7 @@ export default function RecipeDetail() {
         setTodayMenu(menuData);
       } catch (error) {
         console.error('加载数据失败:', error);
-        // 降级到同步方法
-        const recipesSync = storage.getRecipesSync();
-        const foundRecipe = recipesSync.find(r => r.id === id);
-        setRecipe(foundRecipe || null);
+        setRecipe(null);
         setIngredients(storage.getIngredients());
         setTodayMenu(storage.getTodayMenu());
       } finally {
@@ -40,16 +40,13 @@ export default function RecipeDetail() {
 
     loadData();
 
-    // 监听数据更新
+    // 监听数据更新（仅更新菜单和食材）
     const handleStorageUpdate = async () => {
       try {
-        const [recipesData, ingredientsData, menuData] = await Promise.all([
-          storage.getRecipes(),
+        const [ingredientsData, menuData] = await Promise.all([
           Promise.resolve(storage.getIngredients()),
           Promise.resolve(storage.getTodayMenu()),
         ]);
-        const foundRecipe = recipesData.find(r => r.id === id);
-        setRecipe(foundRecipe || null);
         setIngredients(ingredientsData);
         setTodayMenu(menuData);
       } catch (error) {
@@ -84,6 +81,9 @@ export default function RecipeDetail() {
 
   const availability = checkRecipeAvailability(recipe, ingredients);
   const isInMenu = todayMenu.some(item => item.recipeId === recipe.id);
+  
+  // 获取原始数据（如果存在）
+  const originalData = (recipe as any)?._originalData;
 
   const handleAddToMenu = () => {
     if (isInMenu) {
@@ -105,35 +105,6 @@ export default function RecipeDetail() {
     navigate('/todo');
   };
 
-  const handleDeleteRecipe = async () => {
-    if (!recipe) return;
-    
-    const confirmed = window.confirm(`确定要删除菜谱"${recipe.name}"吗？此操作不可撤销。`);
-    if (!confirmed) return;
-    
-    try {
-      // 获取所有菜谱
-      const allRecipes = await storage.getRecipes();
-      // 过滤掉要删除的菜谱
-      const updatedRecipes = allRecipes.filter(r => r.id !== recipe.id);
-      // 保存更新后的菜谱列表
-      await storage.saveRecipes(updatedRecipes);
-      
-      // 如果该菜谱在今日菜单中，也要移除
-      const updatedMenu = todayMenu.filter(item => item.recipeId !== recipe.id);
-      storage.saveTodayMenu(updatedMenu);
-      
-      // 触发更新事件
-      window.dispatchEvent(new Event('storage-update'));
-      
-      // 返回菜谱列表页
-      navigate('/recipes');
-    } catch (error) {
-      console.error('删除菜谱失败:', error);
-      alert('删除失败，请重试');
-    }
-  };
-
   return (
     <div>
       <button 
@@ -144,34 +115,34 @@ export default function RecipeDetail() {
         ← 返回
       </button>
 
+      {/* 封面图片 */}
+      <div className="card" style={{ marginBottom: '1.5rem', padding: 0, overflow: 'hidden', border: 'none' }}>
+        <RecipeImage
+          recipe={recipe}
+          style={{
+            width: '100%',
+            height: '300px',
+            objectFit: 'cover'
+          }}
+        />
+      </div>
+
       {/* 菜名 */}
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-          <h1 style={{ fontSize: '2rem', margin: 0, flex: 1 }}>{recipe.name}</h1>
-          <button
-            className="btn btn-outline"
-            onClick={handleDeleteRecipe}
-            style={{
-              marginLeft: '1rem',
-              backgroundColor: '#ff5252',
-              color: 'white',
-              border: 'none',
-              padding: '0.5rem 1rem',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#d32f2f';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = '#ff5252';
-            }}
-          >
-            删除
-          </button>
+          <h1 style={{ fontSize: '1.75rem', margin: 0, flex: 1, fontWeight: 700 }}>{recipe.name}</h1>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-          {recipe.category.map(cat => (
-            <span key={cat} className="badge badge-info">{cat}</span>
-          ))}
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+          {/* 展示所有原始分类 */}
+          {originalData?.categories && originalData.categories.length > 0 ? (
+            originalData.categories.map((cat: string) => (
+              <span key={cat} className="badge badge-info">{cat}</span>
+            ))
+          ) : (
+            recipe.category.map(cat => (
+              <span key={cat} className="badge badge-info">{cat}</span>
+            ))
+          )}
           {availability.available ? (
             <span className="badge badge-success">食材齐全</span>
           ) : (
@@ -182,54 +153,174 @@ export default function RecipeDetail() {
           className="btn btn-primary"
           onClick={handleAddToMenu}
           disabled={isInMenu}
-          style={{ width: '100%' }}
+          style={{ width: '100%', padding: '1rem' }}
         >
           {isInMenu ? '已在菜单中' : '加入菜单'}
         </button>
       </div>
 
+      {/* 描述 */}
+      {recipe.description && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>简介</h2>
+          <p style={{ color: 'var(--text-secondary)', lineHeight: '1.8' }}>{recipe.description}</p>
+        </div>
+      )}
+
       {/* 食材明细 */}
       <div className="card" style={{ marginBottom: '1.5rem' }}>
         <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>食材明细</h2>
         
-        {/* 主料和辅料 - 需要从ingredients中区分，这里简化处理，显示所有食材 */}
-        {recipe.ingredients.length > 0 && (
-          <ul style={{ listStyle: 'none', padding: 0 }}>
-            {recipe.ingredients.map((ing, index) => {
-              const stock = ingredients.find(i => i.id === ing.ingredientId);
-              const hasEnough = stock?.isStaple || (stock && stock.quantity >= ing.quantity);
-              
-              return (
-                <li 
-                  key={index}
-                  style={{
-                    padding: '0.75rem',
-                    marginBottom: '0.5rem',
-                    borderRadius: '8px',
-                    backgroundColor: hasEnough ? '#d3f9d8' : '#fff3bf',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 500 }}>
-                      {ing.ingredientName} {ing.quantity > 0 ? `${ing.quantity}${ing.unit}` : ing.unit}
-                    </span>
-                    <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+        {/* 主料 */}
+        {originalData?.main_ingredients && originalData.main_ingredients.length > 0 && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', color: 'var(--text-primary)' }}>主料</h3>
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {originalData.main_ingredients.map((ing: any, index: number) => {
+                const stock = ingredients.find(i => i.name === ing.name);
+                const hasEnough = stock?.isStaple || (stock && stock.quantity >= (parseFloat(ing.amount) || 0));
+                const displayAmount = ing.amount === '适量' || ing.amount === '少许' || ing.amount === '适当' || ing.amount === '若干' ? '适量' : ing.amount;
+                const displayUnit = ing.amount === '适量' || ing.amount === '少许' || ing.amount === '适当' || ing.amount === '若干' ? '' : (ing.unit || '');
+                
+                return (
+                  <li 
+                    key={index}
+                    style={{
+                      padding: '0.875rem',
+                      marginBottom: '0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: hasEnough ? 'var(--success-bg)' : 'var(--warning-bg)',
+                      border: `1px solid ${hasEnough ? 'transparent' : 'rgba(253, 203, 110, 0.3)'}`,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {ing.name}
+                      </span>
+                      <span style={{ marginLeft: '0.5rem', color: 'var(--text-secondary)' }}>
+                        {displayAmount} {displayUnit}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.875rem' }}>
                       {stock ? (
-                        <>库存: {stock.isStaple ? '常备' : `${stock.quantity}${stock.unit}`}</>
+                        <span style={{ color: 'var(--success-color)', fontWeight: 500 }}>
+                          {stock.isStaple ? '常备' : `库存: ${stock.quantity}${stock.unit}`}
+                        </span>
                       ) : (
-                        <span style={{ color: 'var(--danger-color)' }}>缺货</span>
+                        <span style={{ color: 'var(--danger-color)', fontWeight: 600 }}>缺货</span>
                       )}
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* 辅料 */}
+        {originalData?.auxiliary_ingredients && originalData.auxiliary_ingredients.length > 0 && (
+          <div style={{ marginBottom: '1.5rem' }}>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', color: 'var(--text-primary)' }}>辅料</h3>
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {originalData.auxiliary_ingredients.map((ing: any, index: number) => {
+                const stock = ingredients.find(i => i.name === ing.name);
+                const hasEnough = stock?.isStaple || (stock && stock.quantity >= (parseFloat(ing.amount) || 0));
+                const displayAmount = ing.amount === '适量' || ing.amount === '少许' || ing.amount === '适当' || ing.amount === '若干' ? '适量' : ing.amount;
+                const displayUnit = ing.amount === '适量' || ing.amount === '少许' || ing.amount === '适当' || ing.amount === '若干' ? '' : (ing.unit || '');
+                
+                return (
+                  <li 
+                    key={index}
+                    style={{
+                      padding: '0.875rem',
+                      marginBottom: '0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: hasEnough ? 'var(--success-bg)' : 'var(--warning-bg)',
+                      border: `1px solid ${hasEnough ? 'transparent' : 'rgba(253, 203, 110, 0.3)'}`,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {ing.name}
+                      </span>
+                      <span style={{ marginLeft: '0.5rem', color: 'var(--text-secondary)' }}>
+                        {displayAmount} {displayUnit}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.875rem' }}>
+                      {stock ? (
+                        <span style={{ color: 'var(--success-color)', fontWeight: 500 }}>
+                          {stock.isStaple ? '常备' : `库存: ${stock.quantity}${stock.unit}`}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--danger-color)', fontWeight: 600 }}>缺货</span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* 调料 */}
+        {originalData?.seasonings && originalData.seasonings.length > 0 && (
+          <div>
+            <h3 style={{ fontSize: '1.1rem', marginBottom: '0.75rem', color: 'var(--text-primary)' }}>调料</h3>
+            <ul style={{ listStyle: 'none', padding: 0 }}>
+              {originalData.seasonings.map((ing: any, index: number) => {
+                const stock = ingredients.find(i => i.name === ing.name);
+                const hasEnough = stock?.isStaple || (stock && stock.quantity >= (parseFloat(ing.amount) || 0));
+                const displayAmount = ing.amount === '适量' || ing.amount === '少许' || ing.amount === '适当' || ing.amount === '若干' ? '适量' : ing.amount;
+                const displayUnit = ing.amount === '适量' || ing.amount === '少许' || ing.amount === '适当' || ing.amount === '若干' ? '' : (ing.unit || '');
+                
+                return (
+                  <li 
+                    key={index}
+                    style={{
+                      padding: '0.875rem',
+                      marginBottom: '0.5rem',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: hasEnough ? 'var(--success-bg)' : 'var(--warning-bg)',
+                      border: `1px solid ${hasEnough ? 'transparent' : 'rgba(253, 203, 110, 0.3)'}`,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {ing.name}
+                      </span>
+                      <span style={{ marginLeft: '0.5rem', color: 'var(--text-secondary)' }}>
+                        {displayAmount} {displayUnit}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.875rem' }}>
+                      {stock ? (
+                        <span style={{ color: 'var(--success-color)', fontWeight: 500 }}>
+                          {stock.isStaple ? '常备' : `库存: ${stock.quantity}${stock.unit}`}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--danger-color)', fontWeight: 600 }}>缺货</span>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         )}
       </div>
 
       {/* 制作信息 */}
-      {(recipe.taste || recipe.craft || recipe.time || recipe.difficulty) && (
+      {(recipe.taste || recipe.craft || recipe.time || recipe.difficulty || originalData?.tools) && (
         <div className="card" style={{ marginBottom: '1.5rem' }}>
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>制作信息</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem' }}>
@@ -259,49 +350,51 @@ export default function RecipeDetail() {
                 <div style={{ fontSize: '1.1rem', fontWeight: 500 }}>{recipe.difficulty}</div>
               </div>
             )}
+            {originalData?.tools && (
+              <div>
+                <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>使用的厨具</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 500 }}>{originalData.tools}</div>
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* 做法步骤 */}
-      <div className="card">
-        <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>做法步骤</h2>
-        <ol style={{ paddingLeft: '1.5rem' }}>
-          {recipe.steps.map((step) => (
-            <li 
-              key={step.step}
-              style={{
-                marginBottom: '1.5rem',
-                paddingLeft: '0.5rem',
-                lineHeight: '1.6',
-              }}
-            >
-              <div style={{ fontWeight: 500, marginBottom: '0.5rem', fontSize: '1.1rem' }}>
-                步骤 {step.step}
-              </div>
-              {step.image && (
-                <div style={{ marginBottom: '0.5rem' }}>
-                  <img 
-                    src={step.image} 
-                    alt={`步骤 ${step.step}`}
-                    style={{
-                      maxWidth: '100%',
-                      borderRadius: '8px',
-                      boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-                    }}
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                    }}
-                  />
+      {recipe.steps && recipe.steps.length > 0 && (
+        <div className="card" style={{ marginBottom: '1.5rem' }}>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>做法步骤</h2>
+          <ol style={{ paddingLeft: '1.5rem' }}>
+            {recipe.steps.map((step) => (
+              <li 
+                key={step.step}
+                style={{
+                  marginBottom: '1.5rem',
+                  paddingLeft: '0.5rem',
+                  lineHeight: '1.6',
+                }}
+              >
+                <div style={{ fontWeight: 500, marginBottom: '0.5rem', fontSize: '1.1rem' }}>
+                  步骤 {step.step}
                 </div>
-              )}
-              <div style={{ color: 'var(--text-secondary)', lineHeight: '1.8' }}>
-                {step.description}
-              </div>
-            </li>
-          ))}
-        </ol>
-      </div>
+                <div style={{ color: 'var(--text-secondary)', lineHeight: '1.8' }}>
+                  {step.description}
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* 小窍门 */}
+      {originalData?.tips && (
+        <div className="card">
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>小窍门</h2>
+          <p style={{ color: 'var(--text-secondary)', lineHeight: '1.8', whiteSpace: 'pre-wrap' }}>
+            {originalData.tips}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

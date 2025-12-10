@@ -1,5 +1,5 @@
-// 食材类型
-export type IngredientCategory = '蔬果' | '肉禽蛋' | '熟食' | '调料' | '其他';
+// 食材类型（从 ingredientCategory.ts 导入）
+export type { IngredientCategory } from '../utils/ingredientCategory';
 
 // 食材
 export interface Ingredient {
@@ -13,7 +13,7 @@ export interface Ingredient {
 }
 
 // 菜谱分类
-export type RecipeCategory = '全部' | '热菜' | '养生' | '烘焙' | '小吃' | '饮品' | '其他';
+export type RecipeCategory = '全部' | '热菜' | '凉菜' | '汤羹' | '主食' | '小吃' | '西餐' | '烘焙' | '饮品' | '泡酱腌菜' | '其它';
 
 // 菜谱食材
 export interface RecipeIngredient {

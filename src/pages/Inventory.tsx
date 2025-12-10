@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Edit2, Trash2 } from 'lucide-react';
 import { storage } from '../utils/storage';
-import { Ingredient, IngredientCategory } from '../types';
+import { Ingredient } from '../types';
+import { getIngredientCategory } from '../utils/ingredientCategory';
 
 export default function Inventory() {
   const [ingredients, setIngredients] = useState(storage.getIngredients());
@@ -17,12 +18,13 @@ export default function Inventory() {
     needRestock: false,
   });
 
-  const categories: IngredientCategory[] = ['蔬果', '肉禽蛋', '熟食', '调料', '其他'];
-
-  const ingredientsByCategory = categories.reduce((acc, category) => {
-    acc[category] = ingredients.filter(ing => ing.category === category);
-    return acc;
-  }, {} as Record<IngredientCategory, Ingredient[]>);
+  // 当食材名称改变时，自动分类（后台分类，不显示）
+  useEffect(() => {
+    if (formData.name && formData.name.trim()) {
+      const category = getIngredientCategory(formData.name);
+      setFormData(prev => ({ ...prev, category }));
+    }
+  }, [formData.name]);
 
   const handleSave = () => {
     if (!formData.name?.trim()) {
@@ -30,11 +32,15 @@ export default function Inventory() {
       return;
     }
 
+    // 自动分类（编辑时也重新分类）
+    const category = getIngredientCategory(formData.name);
+    const finalFormData = { ...formData, category };
+
     if (editingId) {
       // 编辑
       const updated = ingredients.map(ing =>
         ing.id === editingId
-          ? { ...ing, ...formData } as Ingredient
+          ? { ...ing, ...finalFormData } as Ingredient
           : ing
       );
       setIngredients(updated);
@@ -44,12 +50,12 @@ export default function Inventory() {
       // 新增
       const newIngredient: Ingredient = {
         id: `ing_${Date.now()}_${Math.random()}`,
-        name: formData.name!,
-        category: formData.category || '其他',
-        quantity: formData.quantity || 0,
-        unit: formData.unit || '个',
-        isStaple: formData.isStaple || false,
-        needRestock: formData.needRestock || false,
+        name: finalFormData.name!,
+        category: category,
+        quantity: finalFormData.quantity || 0,
+        unit: finalFormData.unit || '个',
+        isStaple: finalFormData.isStaple || false,
+        needRestock: finalFormData.needRestock || false,
       };
       const updated = [...ingredients, newIngredient];
       setIngredients(updated);
@@ -142,33 +148,17 @@ export default function Inventory() {
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
-                  分类
-                </label>
-                <select
-                  className="search-bar"
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value as IngredientCategory })}
-                >
-                  {categories.map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
-                  单位
-                </label>
-                <input
-                  type="text"
-                  className="search-bar"
-                  placeholder="如：个、把、g"
-                  value={formData.unit}
-                  onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                />
-              </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
+                单位
+              </label>
+              <input
+                type="text"
+                className="search-bar"
+                placeholder="如：个、把、g"
+                value={formData.unit}
+                onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
+              />
             </div>
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>
@@ -214,70 +204,72 @@ export default function Inventory() {
         </div>
       )}
 
-      {categories.map(category => {
-        const categoryIngredients = ingredientsByCategory[category];
-        if (categoryIngredients.length === 0) return null;
-
-        return (
-          <div key={category} className="card" style={{ marginBottom: '1rem' }}>
-            <h3 style={{ marginBottom: '1rem', fontSize: '1.25rem', color: 'var(--text-primary)' }}>
-              {category}
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {categoryIngredients.map(ingredient => (
-                <div
-                  key={ingredient.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '0.75rem',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--bg-color)',
-                  }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-                      <span style={{ fontWeight: 500, fontSize: '1.125rem' }}>
-                        {ingredient.name}
+      {ingredients.length > 0 && (
+        <div className="card">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {ingredients.map(ingredient => (
+              <div
+                key={ingredient.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '1rem',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--bg-color)',
+                  border: '1px solid transparent',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--secondary-light)';
+                  e.currentTarget.style.borderColor = 'var(--secondary-color)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--bg-color)';
+                  e.currentTarget.style.borderColor = 'transparent';
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                    <span style={{ fontWeight: 500, fontSize: '1.125rem' }}>
+                      {ingredient.name}
+                    </span>
+                    {ingredient.isStaple && (
+                      <span className="badge badge-info" style={{ fontSize: '0.75rem' }}>
+                        常备
                       </span>
-                      {ingredient.isStaple && (
-                        <span className="badge badge-info" style={{ fontSize: '0.75rem' }}>
-                          常备
-                        </span>
-                      )}
-                      {ingredient.needRestock && (
-                        <span className="badge badge-warning" style={{ fontSize: '0.75rem' }}>
-                          ○ 补
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
-                      {ingredient.quantity}{ingredient.unit}
-                    </div>
+                    )}
+                    {ingredient.needRestock && (
+                      <span className="badge badge-warning" style={{ fontSize: '0.75rem' }}>
+                        ○ 补
+                      </span>
+                    )}
                   </div>
-                  <div style={{ display: 'flex', gap: '0.5rem' }}>
-                    <button
-                      className="btn btn-outline"
-                      onClick={() => handleEdit(ingredient)}
-                      style={{ padding: '0.5rem' }}
-                    >
-                      <Edit2 size={16} />
-                    </button>
-                    <button
-                      className="btn btn-outline"
-                      onClick={() => handleDelete(ingredient.id)}
-                      style={{ padding: '0.5rem', color: 'var(--danger-color)' }}
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                  <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                    {ingredient.quantity}{ingredient.unit}
                   </div>
                 </div>
-              ))}
-            </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => handleEdit(ingredient)}
+                    style={{ padding: '0.5rem' }}
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => handleDelete(ingredient.id)}
+                    style={{ padding: '0.5rem', color: 'var(--danger-color)' }}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      )}
 
       {ingredients.length === 0 && (
         <div className="card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
