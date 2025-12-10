@@ -31,9 +31,7 @@ __pycache__/
 .Python
 
 # Crawled data (large files)
-recipe_new/
 recipes_extracted.txt
 recipes_parsed.json
 parsed_recipes.json
 seen_ids.txt
-
